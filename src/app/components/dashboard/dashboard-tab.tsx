@@ -2,14 +2,17 @@ import { useMemo } from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { Transaction, Subcategory } from '../../dashboard-types';
 import { CATEGORIES, SUBCATEGORIES } from '../../dashboard-data';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface DashboardTabProps {
   currentMonth: string;
+  onMonthChange: (month: string) => void;
+  availableMonths: string[];
   transactions: Transaction[];
   income: number;
 }
 
-export function DashboardTab({ currentMonth, transactions, income }: DashboardTabProps) {
+export function DashboardTab({ currentMonth, onMonthChange, availableMonths, transactions, income }: DashboardTabProps) {
   const monthlyData = useMemo(() => {
     const filtered = transactions.filter((t) => {
       const txMonth = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, '0')}`;
@@ -45,9 +48,24 @@ export function DashboardTab({ currentMonth, transactions, income }: DashboardTa
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h2>{formatMonth(currentMonth)} Overview</h2>
-        <p className="text-muted-foreground">Track your spending against your budget</p>
+      {/* Header with Welcome and Month Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">Welcome, Daniel</h1>
+          <p className="text-muted-foreground mt-1">Here is your financial overview for the month</p>
+        </div>
+        <Select value={currentMonth} onValueChange={onMonthChange}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {availableMonths.map((month) => (
+              <SelectItem key={month} value={month}>
+                {formatMonth(month)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Summary Cards */}

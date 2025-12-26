@@ -160,7 +160,7 @@ export default function App() {
       <div className="w-64 bg-[#3d3328] flex flex-col border-r border-[#5a4a3a]">
         {/* Logo/Header */}
         <div className="p-6 border-b border-[#5a4a3a]">
-          <h1 className="text-xl font-bold text-[#faf8f5]">FinanceFlow</h1>
+          <h1 className="text-xl font-bold text-[#faf8f5]">Finance Dashboard</h1>
         </div>
 
         {/* Navigation */}
@@ -192,6 +192,8 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardTab
             currentMonth={selectedMonth}
+            onMonthChange={setSelectedMonth}
+            availableMonths={availableMonths}
             transactions={transactions}
             income={currentMonthIncome}
           />
