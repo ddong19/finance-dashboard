@@ -196,6 +196,7 @@ export default function App() {
             availableMonths={availableMonths}
             transactions={transactions}
             income={currentMonthIncome}
+            onNavigateToTransactions={() => setActiveTab('transactions')}
           />
         )}
         {activeTab === 'months' && (
