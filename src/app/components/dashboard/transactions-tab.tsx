@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Transaction } from '../../dashboard-types';
+import { TransactionWithDetails } from '../../../lib/database';
 import { CATEGORIES, SUBCATEGORIES } from '../../dashboard-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
@@ -8,6 +9,7 @@ interface TransactionsTabProps {
   onMonthChange: (month: string) => void;
   availableMonths: string[];
   transactions: Transaction[];
+  allTransactions?: TransactionWithDetails[];
 }
 
 export function TransactionsTab({
@@ -15,17 +17,34 @@ export function TransactionsTab({
   onMonthChange,
   availableMonths,
   transactions,
+  allTransactions,
 }: TransactionsTabProps) {
   const filteredTransactions = useMemo(() => {
+    // Use real transactions if available, otherwise fall back to mock
+    if (allTransactions && allTransactions.length > 0) {
+      return allTransactions
+        .filter((t) => {
+          const txMonth = t.occurred_at.substring(0, 7); // Extract YYYY-MM
+          return txMonth === selectedMonth;
+        })
+        .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+    }
+
     return transactions
       .filter((t) => {
         const txMonth = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, '0')}`;
         return txMonth === selectedMonth;
       })
       .sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [transactions, selectedMonth]);
+  }, [transactions, allTransactions, selectedMonth]);
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | string) => {
+    if (typeof date === 'string') {
+      // Parse date string directly without timezone conversion (YYYY-MM-DD format)
+      const [year, month, day] = date.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
@@ -43,7 +62,17 @@ export function TransactionsTab({
     return SUBCATEGORIES.find((s) => s.id === subcategoryId)?.name || 'Unknown';
   };
 
-  const totalSpent = filteredTransactions.reduce((sum, t) => sum + t.amount, 0);
+  const isUsingRealData = allTransactions && allTransactions.length > 0;
+
+  const totalSpent = filteredTransactions
+    .filter((t: any) => {
+      // Exclude Income category
+      if (isUsingRealData) {
+        return t.category?.name !== 'Income';
+      }
+      return t.categoryId !== 'cat-income';
+    })
+    .reduce((sum, t: any) => sum + Number(t.amount), 0);
 
   return (
     <div className="p-6 space-y-6">
@@ -75,7 +104,17 @@ export function TransactionsTab({
             <div className="text-2xl font-semibold">{filteredTransactions.length}</div>
           </div>
           <div className="text-right">
-            <div className="text-sm text-muted-foreground">Total Amount</div>
+            <div className="text-sm text-muted-foreground flex items-center justify-end gap-1">
+              Total Amount
+              <span className="relative group cursor-help">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="absolute bottom-full right-0 mb-2 hidden group-hover:block px-2 py-1 text-xs text-[#faf8f5] bg-[#3d3328] rounded shadow-lg whitespace-nowrap">
+                  Does not include income
+                </span>
+              </span>
+            </div>
             <div className="text-2xl font-semibold">${totalSpent.toFixed(2)}</div>
           </div>
         </div>
@@ -96,27 +135,55 @@ export function TransactionsTab({
             </thead>
             <tbody className="divide-y divide-border/50">
               {filteredTransactions.length > 0 ? (
-                filteredTransactions.map((transaction) => (
-                  <tr key={transaction.id} className="hover:bg-accent/10">
-                    <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">
-                      {formatDate(transaction.date)}
-                    </td>
-                    <td className="px-5 py-4 text-sm">
-                      <span className="px-2 py-1 bg-accent text-accent-foreground rounded-full text-xs">
-                        {getCategoryName(transaction.categoryId)}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-sm font-medium">
-                      {getSubcategoryName(transaction.subcategoryId)}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-muted-foreground max-w-xs truncate">
-                      {transaction.note || '-'}
-                    </td>
-                    <td className="px-5 py-4 text-sm font-semibold text-right whitespace-nowrap">
-                      ${transaction.amount.toFixed(2)}
-                    </td>
-                  </tr>
-                ))
+                filteredTransactions.map((transaction: any) => {
+                  // Handle real database transactions
+                  if (isUsingRealData) {
+                    return (
+                      <tr key={transaction.id} className="hover:bg-accent/10">
+                        <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">
+                          {formatDate(transaction.occurred_at)}
+                        </td>
+                        <td className="px-5 py-4 text-sm">
+                          <span className="px-2 py-1 bg-accent text-accent-foreground rounded-full text-xs">
+                            {transaction.category?.name || 'Unknown'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-sm font-medium">
+                          {transaction.subcategory?.name || 'Unknown'}
+                        </td>
+                        <td className="px-5 py-4 text-sm text-muted-foreground max-w-xs truncate">
+                          {transaction.notes || '-'}
+                        </td>
+                        <td className="px-5 py-4 text-sm font-semibold text-right whitespace-nowrap">
+                          ${Number(transaction.amount).toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  // Handle mock transactions
+                  return (
+                    <tr key={transaction.id} className="hover:bg-accent/10">
+                      <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">
+                        {formatDate(transaction.date)}
+                      </td>
+                      <td className="px-5 py-4 text-sm">
+                        <span className="px-2 py-1 bg-accent text-accent-foreground rounded-full text-xs">
+                          {getCategoryName(transaction.categoryId)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-sm font-medium">
+                        {getSubcategoryName(transaction.subcategoryId)}
+                      </td>
+                      <td className="px-5 py-4 text-sm text-muted-foreground max-w-xs truncate">
+                        {transaction.note || '-'}
+                      </td>
+                      <td className="px-5 py-4 text-sm font-semibold text-right whitespace-nowrap">
+                        ${transaction.amount.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan={5} className="px-5 py-12 text-center text-muted-foreground">

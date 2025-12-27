@@ -155,6 +155,32 @@ export async function getMonthlySpendingBySubcategory(year: number, month: numbe
 }
 
 /**
+ * Fetch all transactions for the current user
+ * Sorted by date, newest first
+ */
+export async function fetchAllTransactions() {
+  const { data, error } = await supabase
+    .from('transactions')
+    .select(`
+      *,
+      subcategory:subcategories (
+        *,
+        category:categories (*)
+      )
+    `)
+    .order('occurred_at', { ascending: false });
+
+  if (error) throw error;
+
+  // Flatten the nested structure
+  return (data || []).map((item: any) => ({
+    ...item,
+    subcategory: item.subcategory,
+    category: item.subcategory?.category,
+  })) as TransactionWithDetails[];
+}
+
+/**
  * Get all months that have transactions
  * Returns array of month strings in YYYY-MM format, sorted newest first
  * Always includes the current month even if there are no transactions

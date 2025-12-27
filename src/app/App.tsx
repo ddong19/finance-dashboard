@@ -9,7 +9,7 @@ import { LoginPage } from './components/auth/LoginPage';
 import { Transaction, Subcategory, MonthlyIncome } from './dashboard-types';
 import { SUBCATEGORIES as INITIAL_SUBCATEGORIES, generateMockTransactions, MOCK_INCOME } from './dashboard-data';
 import { supabase } from '../lib/supabase';
-import { fetchTransactionsForMonth, getMonthlySpendingByCategory, getMonthlySpendingBySubcategory, getAvailableMonths, TransactionWithDetails } from '../lib/database';
+import { fetchTransactionsForMonth, getMonthlySpendingByCategory, getMonthlySpendingBySubcategory, getAvailableMonths, fetchAllTransactions, TransactionWithDetails } from '../lib/database';
 import type { User } from '@supabase/supabase-js';
 
 type Tab = 'dashboard' | 'months' | 'averages' | 'transactions' | 'categories';
@@ -35,6 +35,7 @@ export default function App() {
   const [spendingBySubcategory, setSpendingBySubcategory] = useState<Record<string, { subcategoryId: number; subcategoryName: string; total: number; categoryName: string }>>({});
   const [monthTransactions, setMonthTransactions] = useState<TransactionWithDetails[]>([]);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [allTransactions, setAllTransactions] = useState<TransactionWithDetails[]>([]);
 
   // Check authentication status
   useEffect(() => {
@@ -52,25 +53,30 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load available months when user logs in
+  // Load available months and all transactions when user logs in
   useEffect(() => {
     if (!user) return;
 
-    const loadAvailableMonths = async () => {
+    const loadInitialData = async () => {
       try {
-        const months = await getAvailableMonths();
+        const [months, transactions] = await Promise.all([
+          getAvailableMonths(),
+          fetchAllTransactions()
+        ]);
+
         setAvailableMonths(months);
+        setAllTransactions(transactions);
 
         // If current selected month doesn't exist in available months, set to first available
         if (months.length > 0 && !months.includes(selectedMonth)) {
           setSelectedMonth(months[0]);
         }
       } catch (error) {
-        console.error('Error loading available months:', error);
+        console.error('Error loading initial data:', error);
       }
     };
 
-    loadAvailableMonths();
+    loadInitialData();
   }, [user]);
 
   // Load spending data when user is logged in or month changes
@@ -320,6 +326,7 @@ export default function App() {
             onMonthChange={setSelectedMonth}
             availableMonths={availableMonths}
             transactions={transactions}
+            allTransactions={allTransactions}
           />
         )}
         {activeTab === 'categories' && (
