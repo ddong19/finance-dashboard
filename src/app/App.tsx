@@ -1,16 +1,22 @@
 import { useState, useEffect, useMemo } from 'react';
-import { LayoutDashboard, Calendar, TrendingUp, Receipt, FolderTree } from 'lucide-react';
+import { LayoutDashboard, Calendar, TrendingUp, Receipt, FolderTree, LogOut } from 'lucide-react';
 import { DashboardTab } from './components/dashboard/dashboard-tab';
 import { MonthsTab } from './components/dashboard/months-tab';
 import { AveragesTab } from './components/dashboard/averages-tab';
 import { TransactionsTab } from './components/dashboard/transactions-tab';
 import { CategoriesTab } from './components/dashboard/categories-tab';
+import { LoginPage } from './components/auth/LoginPage';
 import { Transaction, Subcategory, MonthlyIncome } from './dashboard-types';
 import { SUBCATEGORIES as INITIAL_SUBCATEGORIES, generateMockTransactions, MOCK_INCOME } from './dashboard-data';
+import { supabase } from '../lib/supabase';
+import { fetchTransactionsForMonth, getMonthlySpendingByCategory, getMonthlySpendingBySubcategory, getAvailableMonths, TransactionWithDetails } from '../lib/database';
+import type { User } from '@supabase/supabase-js';
 
 type Tab = 'dashboard' | 'months' | 'averages' | 'transactions' | 'categories';
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [subcategories, setSubcategories] = useState<Subcategory[]>(INITIAL_SUBCATEGORIES);
@@ -23,6 +29,72 @@ export default function App() {
     const now = new Date();
     return now.getFullYear().toString();
   });
+
+  // Data from database
+  const [spendingByCategory, setSpendingByCategory] = useState<Record<string, { categoryId: number; categoryName: string; total: number }>>({});
+  const [spendingBySubcategory, setSpendingBySubcategory] = useState<Record<string, { subcategoryId: number; subcategoryName: string; total: number; categoryName: string }>>({});
+  const [monthTransactions, setMonthTransactions] = useState<TransactionWithDetails[]>([]);
+  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+
+  // Check authentication status
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load available months when user logs in
+  useEffect(() => {
+    if (!user) return;
+
+    const loadAvailableMonths = async () => {
+      try {
+        const months = await getAvailableMonths();
+        setAvailableMonths(months);
+
+        // If current selected month doesn't exist in available months, set to first available
+        if (months.length > 0 && !months.includes(selectedMonth)) {
+          setSelectedMonth(months[0]);
+        }
+      } catch (error) {
+        console.error('Error loading available months:', error);
+      }
+    };
+
+    loadAvailableMonths();
+  }, [user]);
+
+  // Load spending data when user is logged in or month changes
+  useEffect(() => {
+    if (!user) return;
+
+    const loadSpendingData = async () => {
+      try {
+        const [year, month] = selectedMonth.split('-');
+        const [categoryData, subcategoryData, transactionsData] = await Promise.all([
+          getMonthlySpendingByCategory(parseInt(year), parseInt(month)),
+          getMonthlySpendingBySubcategory(parseInt(year), parseInt(month)),
+          fetchTransactionsForMonth(parseInt(year), parseInt(month))
+        ]);
+        setSpendingByCategory(categoryData);
+        setSpendingBySubcategory(subcategoryData);
+        setMonthTransactions(transactionsData);
+      } catch (error) {
+        console.error('Error loading spending data:', error);
+      }
+    };
+
+    loadSpendingData();
+  }, [user, selectedMonth]);
 
   // Load data from localStorage
   useEffect(() => {
@@ -76,21 +148,6 @@ export default function App() {
     localStorage.setItem('dashboard-income', JSON.stringify(income));
   }, [income]);
 
-  // Calculate available months
-  const availableMonths = useMemo(() => {
-    const months = new Set<string>();
-    
-    transactions.forEach((t) => {
-      const month = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, '0')}`;
-      months.add(month);
-    });
-    
-    // Add current month if not present
-    const now = new Date();
-    months.add(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
-    
-    return Array.from(months).sort().reverse();
-  }, [transactions]);
 
   const currentMonthIncome = useMemo(() => {
     const filtered = transactions.filter((t) => {
@@ -146,6 +203,34 @@ export default function App() {
     );
   };
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
+  const handleLogin = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    setUser(session?.user ?? null);
+    setLoading(false);
+  };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-foreground mb-2">Finance Dashboard</div>
+          <div className="text-muted-foreground">Loading...</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!user) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   const tabs = [
     { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'months' as const, label: 'Months', icon: Calendar },
@@ -185,6 +270,17 @@ export default function App() {
             })}
           </div>
         </nav>
+
+        {/* Logout Button */}
+        <div className="p-4 border-t border-[#5a4a3a]">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-lg transition-all text-[#8b7d6b] hover:text-[#faf8f5] hover:bg-[#4a3d30]"
+          >
+            <LogOut className="w-5 h-5" />
+            Logout
+          </button>
+        </div>
       </div>
 
       {/* Main Content */}
@@ -197,6 +293,9 @@ export default function App() {
             transactions={transactions}
             income={currentMonthIncome}
             onNavigateToTransactions={() => setActiveTab('transactions')}
+            spendingByCategory={spendingByCategory}
+            spendingBySubcategory={spendingBySubcategory}
+            monthTransactions={monthTransactions}
           />
         )}
         {activeTab === 'months' && (

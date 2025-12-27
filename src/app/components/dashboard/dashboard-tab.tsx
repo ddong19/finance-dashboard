@@ -4,6 +4,7 @@ import { Transaction, Subcategory } from '../../dashboard-types';
 import { CATEGORIES, SUBCATEGORIES } from '../../dashboard-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { TransactionWithDetails } from '../../../lib/database';
 
 interface DashboardTabProps {
   currentMonth: string;
@@ -12,9 +13,12 @@ interface DashboardTabProps {
   transactions: Transaction[];
   income: number;
   onNavigateToTransactions?: () => void;
+  spendingByCategory?: Record<string, { categoryId: number; categoryName: string; total: number }>;
+  spendingBySubcategory?: Record<string, { subcategoryId: number; subcategoryName: string; total: number; categoryName: string }>;
+  monthTransactions?: TransactionWithDetails[];
 }
 
-export function DashboardTab({ currentMonth, onMonthChange, availableMonths, transactions, income, onNavigateToTransactions }: DashboardTabProps) {
+export function DashboardTab({ currentMonth, onMonthChange, availableMonths, transactions, income, onNavigateToTransactions, spendingByCategory, spendingBySubcategory, monthTransactions }: DashboardTabProps) {
   const monthlyData = useMemo(() => {
     const filtered = transactions.filter((t) => {
       const txMonth = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, '0')}`;
@@ -86,8 +90,10 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
             </div>
           </div>
           <div className="text-muted-foreground text-sm mb-2">Total Income</div>
-          <div className="text-foreground text-3xl font-bold mb-2">${income.toLocaleString()}</div>
-          <div className="text-[#4a7c59] text-sm">+5% from last month</div>
+          <div className="text-foreground text-3xl font-bold mb-2">
+            ${(spendingByCategory?.['Income']?.total || 0).toLocaleString()}
+          </div>
+          <div className="text-[#4a7c59] text-sm">From transactions</div>
         </div>
 
         {/* Total Needs */}
@@ -101,10 +107,12 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
           </div>
           <div className="text-muted-foreground text-sm mb-2">Total Needs</div>
           <div className="text-foreground text-3xl font-bold mb-2">
-            ${(monthlyData.categoryTotals['cat-needs']?.spent || 0).toLocaleString()}
+            ${(spendingByCategory?.['Needs']?.total || 0).toLocaleString()}
           </div>
           <div className="text-muted-foreground text-sm">
-            {((monthlyData.categoryTotals['cat-needs']?.spent / income) * 100).toFixed(0)}% of income
+            {spendingByCategory?.['Income']?.total
+              ? ((spendingByCategory['Needs']?.total / spendingByCategory['Income']?.total) * 100).toFixed(0)
+              : 0}% of income
           </div>
         </div>
 
@@ -119,10 +127,12 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
           </div>
           <div className="text-muted-foreground text-sm mb-2">Total Wants</div>
           <div className="text-foreground text-3xl font-bold mb-2">
-            ${(monthlyData.categoryTotals['cat-wants']?.spent || 0).toLocaleString()}
+            ${(spendingByCategory?.['Wants']?.total || 0).toLocaleString()}
           </div>
           <div className="text-muted-foreground text-sm">
-            {((monthlyData.categoryTotals['cat-wants']?.spent / income) * 100).toFixed(0)}% of income
+            {spendingByCategory?.['Income']?.total
+              ? ((spendingByCategory['Wants']?.total / spendingByCategory['Income']?.total) * 100).toFixed(0)
+              : 0}% of income
           </div>
         </div>
       </div>
@@ -133,7 +143,7 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
           <div>
             <h3 className="text-foreground text-xl font-bold">Monthly Expense Budget</h3>
             <p className="text-muted-foreground text-sm mt-1">
-              You have spent ${monthlyData.totalSpent.toLocaleString()} of your ${monthlyData.totalBudget.toLocaleString()} budget.
+              You have spent ${((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)).toLocaleString()} of your $3,000 budget.
             </p>
           </div>
           <div className="text-muted-foreground text-sm">
@@ -156,13 +166,13 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
           <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
             <div
               className="bg-chart-1 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min((monthlyData.totalSpent / monthlyData.totalBudget) * 100, 100)}%` }}
+              style={{ width: `${Math.min((((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)) / 3000) * 100, 100)}%` }}
             />
           </div>
           <div className="flex justify-between mt-2 text-muted-foreground text-sm">
             <span>$0</span>
-            <span>{((monthlyData.totalSpent / monthlyData.totalBudget) * 100).toFixed(0)}%</span>
-            <span>${monthlyData.totalBudget.toLocaleString()}</span>
+            <span>{(((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)) / 3000 * 100).toFixed(0)}%</span>
+            <span>$3,000</span>
           </div>
         </div>
       </div>
@@ -178,10 +188,10 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
                 <PieChart>
                   <Pie
                     data={[
-                      { name: 'Needs', value: monthlyData.categoryTotals['cat-needs']?.spent || 0, color: '#9b8578' },
-                      { name: 'Wants', value: monthlyData.categoryTotals['cat-wants']?.spent || 0, color: '#b89f8a' },
-                      { name: 'Savings', value: monthlyData.categoryTotals['cat-savings']?.spent || 0, color: '#8b7d6b' },
-                      { name: 'Tithe', value: monthlyData.categoryTotals['cat-tithe']?.spent || 0, color: '#a68968' },
+                      { name: 'Needs', value: spendingByCategory?.['Needs']?.total || 0, color: '#9b8578' },
+                      { name: 'Wants', value: spendingByCategory?.['Wants']?.total || 0, color: '#b89f8a' },
+                      { name: 'Savings', value: spendingByCategory?.['Savings']?.total || 0, color: '#8b7d6b' },
+                      { name: 'Tithe', value: spendingByCategory?.['Tithe']?.total || 0, color: '#a68968' },
                     ]}
                     cx="50%"
                     cy="50%"
@@ -192,10 +202,10 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
                     strokeWidth={0}
                   >
                     {[
-                      { name: 'Needs', value: monthlyData.categoryTotals['cat-needs']?.spent || 0, color: '#9b8578' },
-                      { name: 'Wants', value: monthlyData.categoryTotals['cat-wants']?.spent || 0, color: '#b89f8a' },
-                      { name: 'Savings', value: monthlyData.categoryTotals['cat-savings']?.spent || 0, color: '#8b7d6b' },
-                      { name: 'Tithe', value: monthlyData.categoryTotals['cat-tithe']?.spent || 0, color: '#a68968' },
+                      { name: 'Needs', value: spendingByCategory?.['Needs']?.total || 0, color: '#9b8578' },
+                      { name: 'Wants', value: spendingByCategory?.['Wants']?.total || 0, color: '#b89f8a' },
+                      { name: 'Savings', value: spendingByCategory?.['Savings']?.total || 0, color: '#8b7d6b' },
+                      { name: 'Tithe', value: spendingByCategory?.['Tithe']?.total || 0, color: '#a68968' },
                     ].map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
@@ -206,25 +216,25 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
                 <div className="text-xs text-muted-foreground mb-1">Total</div>
                 <div className="text-2xl font-bold">
                   ${(
-                    (monthlyData.categoryTotals['cat-needs']?.spent || 0) +
-                    (monthlyData.categoryTotals['cat-wants']?.spent || 0) +
-                    (monthlyData.categoryTotals['cat-savings']?.spent || 0) +
-                    (monthlyData.categoryTotals['cat-tithe']?.spent || 0)
+                    (spendingByCategory?.['Needs']?.total || 0) +
+                    (spendingByCategory?.['Wants']?.total || 0) +
+                    (spendingByCategory?.['Savings']?.total || 0) +
+                    (spendingByCategory?.['Tithe']?.total || 0)
                   ).toLocaleString()}
                 </div>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-x-6 gap-y-4 mt-6 w-full px-4">
               {[
-                { name: 'Needs', value: monthlyData.categoryTotals['cat-needs']?.spent || 0, color: '#9b8578' },
-                { name: 'Wants', value: monthlyData.categoryTotals['cat-wants']?.spent || 0, color: '#b89f8a' },
-                { name: 'Savings', value: monthlyData.categoryTotals['cat-savings']?.spent || 0, color: '#8b7d6b' },
-                { name: 'Tithe', value: monthlyData.categoryTotals['cat-tithe']?.spent || 0, color: '#a68968' },
+                { name: 'Needs', value: spendingByCategory?.['Needs']?.total || 0, color: '#9b8578' },
+                { name: 'Wants', value: spendingByCategory?.['Wants']?.total || 0, color: '#b89f8a' },
+                { name: 'Savings', value: spendingByCategory?.['Savings']?.total || 0, color: '#8b7d6b' },
+                { name: 'Tithe', value: spendingByCategory?.['Tithe']?.total || 0, color: '#a68968' },
               ].map((item) => {
-                const total = (monthlyData.categoryTotals['cat-needs']?.spent || 0) +
-                  (monthlyData.categoryTotals['cat-wants']?.spent || 0) +
-                  (monthlyData.categoryTotals['cat-savings']?.spent || 0) +
-                  (monthlyData.categoryTotals['cat-tithe']?.spent || 0);
+                const total = (spendingByCategory?.['Needs']?.total || 0) +
+                  (spendingByCategory?.['Wants']?.total || 0) +
+                  (spendingByCategory?.['Savings']?.total || 0) +
+                  (spendingByCategory?.['Tithe']?.total || 0);
                 const percentage = total > 0 ? ((item.value / total) * 100).toFixed(0) : 0;
                 return (
                   <div key={item.name} className="flex items-center gap-3">
@@ -245,18 +255,26 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
           <h3 className="mb-6">Budget Status</h3>
           <div className="flex-1 space-y-5">
             {/* Categories */}
-            {CATEGORIES.filter(cat => cat.name !== 'Income').map((category) => {
-              const data = monthlyData.categoryTotals[category.id];
-              const percentage = data.budget > 0 ? (data.spent / data.budget) * 100 : 0;
+            {['Needs', 'Wants', 'Savings', 'Tithe'].map((categoryName) => {
+              const spent = spendingByCategory?.[categoryName]?.total || 0;
+              // Placeholder budgets - will be replaced with real budget data later
+              const budgetMap: Record<string, number> = {
+                'Needs': 1500,
+                'Wants': 1500,
+                'Savings': 500,
+                'Tithe': 300
+              };
+              const budget = budgetMap[categoryName] || 1000;
+              const percentage = budget > 0 ? (spent / budget) * 100 : 0;
               const isOver = percentage > 100;
 
               return (
-                <div key={category.id} className="space-y-2">
+                <div key={categoryName} className="space-y-2">
                   <div className="flex justify-between items-baseline">
-                    <span className="font-medium text-sm">{category.name}</span>
+                    <span className="font-medium text-sm">{categoryName}</span>
                     <div className="text-right">
                       <div className="text-xs text-muted-foreground">
-                        ${data.spent.toFixed(0)} / ${data.budget.toFixed(0)}
+                        ${spent.toFixed(0)} / ${budget.toFixed(0)}
                       </div>
                     </div>
                   </div>
@@ -275,25 +293,26 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
               );
             })}
 
-            {/* Subcategories - Dining, Groceries, Shopping */}
+            {/* Subcategories - Dining, Groceries, Clothes */}
             <div className="pt-4 border-t border-border">
               <h4 className="text-sm font-medium mb-4 text-muted-foreground">Key Subcategories</h4>
               <div className="space-y-5">
-                {['Dining', 'Groceries', 'Shopping'].map((subName) => {
-                  const sub = SUBCATEGORIES.find(s => s.name === subName);
-                  if (!sub) return null;
-
-                  const spent = monthlyData.filtered
-                    .filter((t) => t.subcategoryId === sub.id)
-                    .reduce((sum, t) => sum + t.amount, 0);
-                  const budget = sub.budgetAmount || 0;
+                {['Dining', 'Groceries', 'Clothes'].map((subName) => {
+                  const spent = spendingBySubcategory?.[subName]?.total || 0;
+                  // Placeholder budgets - will be replaced with real budget data later
+                  const budgetMap: Record<string, number> = {
+                    'Dining': 400,
+                    'Groceries': 500,
+                    'Clothes': 200
+                  };
+                  const budget = budgetMap[subName] || 300;
                   const percentage = budget > 0 ? (spent / budget) * 100 : 0;
                   const isOver = percentage > 100;
 
                   return (
-                    <div key={sub.id} className="space-y-2">
+                    <div key={subName} className="space-y-2">
                       <div className="flex justify-between items-baseline">
-                        <span className="text-sm">{sub.name}</span>
+                        <span className="text-sm">{subName}</span>
                         <div className="text-right">
                           <div className="text-xs text-muted-foreground">
                             ${spent.toFixed(0)} / ${budget.toFixed(0)}
@@ -333,35 +352,48 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
           </div>
           <div className="flex-1 space-y-1 overflow-hidden">
             {(() => {
-              const recentTransactions = monthlyData.filtered
-                .filter(t => t.categoryId !== 'cat-income')
-                .sort((a, b) => b.date.getTime() - a.date.getTime())
-                .slice(0, 8);
+              // Use real transactions if available, otherwise fall back to mock data
+              const recentTransactions = monthTransactions && monthTransactions.length > 0
+                ? monthTransactions
+                    .filter(t => t.category?.name !== 'Income')
+                    .slice(0, 8)
+                : monthlyData.filtered
+                    .filter(t => t.categoryId !== 'cat-income')
+                    .sort((a, b) => b.date.getTime() - a.date.getTime())
+                    .slice(0, 8);
 
-              const getCategoryName = (categoryId: string) => {
-                return CATEGORIES.find((c) => c.id === categoryId)?.name || 'Unknown';
-              };
-
-              const getSubcategoryName = (subcategoryId: string) => {
-                return SUBCATEGORIES.find((s) => s.id === subcategoryId)?.name || 'Unknown';
-              };
-
-              const formatDate = (date: Date) => {
+              const formatDate = (dateStr: string | Date) => {
+                const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
                 return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
               };
 
+              // Check if we're using real transactions
+              const isRealData = monthTransactions && monthTransactions.length > 0;
+
               return recentTransactions.length > 0 ? (
-                recentTransactions.map((transaction) => (
-                  <div key={transaction.id} className="flex items-start justify-between py-3 border-b border-border/50 last:border-0">
-                    <div className="flex-1 min-w-0 pr-4">
-                      <div className="text-sm font-medium truncate">{getSubcategoryName(transaction.subcategoryId)}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {formatDate(transaction.date)} • {getCategoryName(transaction.categoryId)}
+                recentTransactions.map((transaction: any) => {
+                  const subcategoryName = isRealData ? transaction.subcategory?.name : SUBCATEGORIES.find((s) => s.id === transaction.subcategoryId)?.name || 'Unknown';
+                  const categoryName = isRealData ? transaction.category?.name : CATEGORIES.find((c) => c.id === transaction.categoryId)?.name || 'Unknown';
+                  const date = isRealData ? formatDate(transaction.occurred_at) : formatDate(transaction.date);
+                  const note = isRealData ? transaction.notes : null;
+
+                  return (
+                    <div key={transaction.id} className="flex items-start justify-between py-3 border-b border-border/50 last:border-0">
+                      <div className="flex-1 min-w-0 pr-4">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-sm font-medium">{subcategoryName}</span>
+                          {note && (
+                            <span className="text-xs text-muted-foreground italic truncate">"{note}"</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {date} • {categoryName}
+                        </div>
                       </div>
+                      <div className="text-sm font-semibold whitespace-nowrap">${Number(transaction.amount).toFixed(2)}</div>
                     </div>
-                    <div className="text-sm font-semibold whitespace-nowrap">${transaction.amount.toFixed(2)}</div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-muted-foreground text-sm text-center py-8">No transactions this month</div>
               );
