@@ -16,9 +16,50 @@ interface DashboardTabProps {
   spendingByCategory?: Record<string, { categoryId: number; categoryName: string; total: number }>;
   spendingBySubcategory?: Record<string, { subcategoryId: number; subcategoryName: string; total: number; categoryName: string }>;
   monthTransactions?: TransactionWithDetails[];
+  monthBudgets?: any[];
 }
 
-export function DashboardTab({ currentMonth, onMonthChange, availableMonths, transactions, income, onNavigateToTransactions, spendingByCategory, spendingBySubcategory, monthTransactions }: DashboardTabProps) {
+export function DashboardTab({ currentMonth, onMonthChange, availableMonths, transactions, income, onNavigateToTransactions, spendingByCategory, spendingBySubcategory, monthTransactions, monthBudgets }: DashboardTabProps) {
+  // Helper function to get budget for a subcategory
+  const getBudgetForSubcategory = (subcategoryId: number) => {
+    if (!monthBudgets || monthBudgets.length === 0) return 0;
+    const budget = monthBudgets.find((b: any) => b.subcategory_id === subcategoryId);
+    return budget ? Number(budget.budget_amount) : 0;
+  };
+
+  // Helper function to get total budget for a category (sum of all subcategory budgets)
+  const getBudgetForCategory = (categoryName: string) => {
+    if (!monthBudgets || monthBudgets.length === 0) return 0;
+
+    // Find all subcategories for this category from spendingBySubcategory
+    const subcategoriesInCategory = Object.values(spendingBySubcategory || {}).filter(
+      (sub) => sub.categoryName === categoryName
+    );
+
+    // Sum up budgets for all subcategories in this category
+    return subcategoriesInCategory.reduce((total, sub) => {
+      return total + getBudgetForSubcategory(sub.subcategoryId);
+    }, 0);
+  };
+
+  // Calculate total budget for all expenses (excluding Income)
+  const totalExpenseBudget = useMemo(() => {
+    if (!monthBudgets || monthBudgets.length === 0) return 0;
+
+    // Sum budgets for all subcategories except Income subcategories
+    return monthBudgets.reduce((total: number, budget: any) => {
+      // Check if this subcategory belongs to a non-Income category
+      const subcategoryData = Object.values(spendingBySubcategory || {}).find(
+        (sub) => sub.subcategoryId === budget.subcategory_id
+      );
+
+      if (subcategoryData && subcategoryData.categoryName !== 'Income') {
+        return total + Number(budget.budget_amount);
+      }
+      return total;
+    }, 0);
+  }, [monthBudgets, spendingBySubcategory]);
+
   const monthlyData = useMemo(() => {
     const filtered = transactions.filter((t) => {
       const txMonth = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, '0')}`;
@@ -143,7 +184,7 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
           <div>
             <h3 className="text-foreground text-xl font-bold">Monthly Expense Budget</h3>
             <p className="text-muted-foreground text-sm mt-1">
-              You have spent ${((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)).toLocaleString()} of your $3,000 budget.
+              You have spent ${((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)).toLocaleString()} of your ${totalExpenseBudget.toLocaleString()} budget.
             </p>
           </div>
           <div className="text-muted-foreground text-sm">
@@ -166,13 +207,13 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
           <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
             <div
               className="bg-chart-1 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min((((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)) / 3000) * 100, 100)}%` }}
+              style={{ width: `${totalExpenseBudget > 0 ? Math.min((((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)) / totalExpenseBudget) * 100, 100) : 0}%` }}
             />
           </div>
           <div className="flex justify-between mt-2 text-muted-foreground text-sm">
             <span>$0</span>
-            <span>{(((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)) / 3000 * 100).toFixed(0)}%</span>
-            <span>$3,000</span>
+            <span>{totalExpenseBudget > 0 ? (((spendingByCategory?.['Needs']?.total || 0) + (spendingByCategory?.['Wants']?.total || 0)) / totalExpenseBudget * 100).toFixed(0) : 0}%</span>
+            <span>${totalExpenseBudget.toLocaleString()}</span>
           </div>
         </div>
       </div>
@@ -257,14 +298,7 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
             {/* Categories */}
             {['Needs', 'Wants', 'Savings', 'Tithe'].map((categoryName) => {
               const spent = spendingByCategory?.[categoryName]?.total || 0;
-              // Placeholder budgets - will be replaced with real budget data later
-              const budgetMap: Record<string, number> = {
-                'Needs': 1500,
-                'Wants': 1500,
-                'Savings': 500,
-                'Tithe': 300
-              };
-              const budget = budgetMap[categoryName] || 1000;
+              const budget = getBudgetForCategory(categoryName);
               const percentage = budget > 0 ? (spent / budget) * 100 : 0;
               const isOver = percentage > 100;
 
@@ -298,14 +332,9 @@ export function DashboardTab({ currentMonth, onMonthChange, availableMonths, tra
               <h4 className="text-sm font-medium mb-4 text-muted-foreground">Key Subcategories</h4>
               <div className="space-y-5">
                 {['Dining', 'Groceries', 'Clothes'].map((subName) => {
-                  const spent = spendingBySubcategory?.[subName]?.total || 0;
-                  // Placeholder budgets - will be replaced with real budget data later
-                  const budgetMap: Record<string, number> = {
-                    'Dining': 400,
-                    'Groceries': 500,
-                    'Clothes': 200
-                  };
-                  const budget = budgetMap[subName] || 300;
+                  const subcategoryData = spendingBySubcategory?.[subName];
+                  const spent = subcategoryData?.total || 0;
+                  const budget = subcategoryData ? getBudgetForSubcategory(subcategoryData.subcategoryId) : 0;
                   const percentage = budget > 0 ? (spent / budget) * 100 : 0;
                   const isOver = percentage > 100;
 

@@ -9,7 +9,7 @@ import { LoginPage } from './components/auth/LoginPage';
 import { Transaction, Subcategory, MonthlyIncome } from './dashboard-types';
 import { SUBCATEGORIES as INITIAL_SUBCATEGORIES, generateMockTransactions, MOCK_INCOME } from './dashboard-data';
 import { supabase } from '../lib/supabase';
-import { fetchTransactionsForMonth, getMonthlySpendingByCategory, getMonthlySpendingBySubcategory, getAvailableMonths, fetchAllTransactions, TransactionWithDetails } from '../lib/database';
+import { fetchTransactionsForMonth, getMonthlySpendingByCategory, getMonthlySpendingBySubcategory, getAvailableMonths, fetchAllTransactions, TransactionWithDetails, fetchBudgetsWithDetails, getOrCreateBudgetsForMonth } from '../lib/database';
 import type { User } from '@supabase/supabase-js';
 
 type Tab = 'dashboard' | 'months' | 'averages' | 'transactions' | 'categories';
@@ -36,6 +36,7 @@ export default function App() {
   const [monthTransactions, setMonthTransactions] = useState<TransactionWithDetails[]>([]);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [allTransactions, setAllTransactions] = useState<TransactionWithDetails[]>([]);
+  const [monthBudgets, setMonthBudgets] = useState<any[]>([]);
 
   // Check authentication status
   useEffect(() => {
@@ -79,21 +80,23 @@ export default function App() {
     loadInitialData();
   }, [user]);
 
-  // Load spending data when user is logged in or month changes
+  // Load spending data and budgets when user is logged in or month changes
   useEffect(() => {
     if (!user) return;
 
     const loadSpendingData = async () => {
       try {
         const [year, month] = selectedMonth.split('-');
-        const [categoryData, subcategoryData, transactionsData] = await Promise.all([
+        const [categoryData, subcategoryData, transactionsData, budgets] = await Promise.all([
           getMonthlySpendingByCategory(parseInt(year), parseInt(month)),
           getMonthlySpendingBySubcategory(parseInt(year), parseInt(month)),
-          fetchTransactionsForMonth(parseInt(year), parseInt(month))
+          fetchTransactionsForMonth(parseInt(year), parseInt(month)),
+          getOrCreateBudgetsForMonth(parseInt(year), parseInt(month))
         ]);
         setSpendingByCategory(categoryData);
         setSpendingBySubcategory(subcategoryData);
         setMonthTransactions(transactionsData);
+        setMonthBudgets(budgets);
       } catch (error) {
         console.error('Error loading spending data:', error);
       }
@@ -302,6 +305,7 @@ export default function App() {
             spendingByCategory={spendingByCategory}
             spendingBySubcategory={spendingBySubcategory}
             monthTransactions={monthTransactions}
+            monthBudgets={monthBudgets}
           />
         )}
         {activeTab === 'months' && (
