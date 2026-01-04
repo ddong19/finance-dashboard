@@ -589,26 +589,60 @@ export async function fetchVisibleSubcategoriesForMonth(monthId: number) {
 }
 
 /**
+ * Fetch all subcategory visibility settings for a specific month
+ * @param monthId - The month ID
+ */
+export async function fetchAllSubcategoryVisibility(monthId: number) {
+  const { data, error } = await supabase
+    .from('month_subcategory_visibility')
+    .select('*')
+    .eq('month_id', monthId);
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
  * Toggle subcategory visibility for a specific month
  * @param monthId - The month ID
  * @param subcategoryId - The subcategory ID
  * @param isVisible - Whether the subcategory should be visible
  */
 export async function setSubcategoryVisibility(monthId: number, subcategoryId: number, isVisible: boolean) {
-  const { data, error } = await supabase
+  // First, check if a record exists
+  const { data: existing } = await supabase
     .from('month_subcategory_visibility')
-    .upsert({
-      month_id: monthId,
-      subcategory_id: subcategoryId,
-      is_visible: isVisible,
-    }, {
-      onConflict: 'month_id,subcategory_id,user_id'
-    })
-    .select()
-    .single();
+    .select('id')
+    .eq('month_id', monthId)
+    .eq('subcategory_id', subcategoryId)
+    .maybeSingle();
 
-  if (error) throw error;
-  return data;
+  if (existing) {
+    // Update existing record
+    const { data, error } = await supabase
+      .from('month_subcategory_visibility')
+      .update({ is_visible: isVisible })
+      .eq('id', existing.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } else {
+    // Insert new record
+    const { data, error } = await supabase
+      .from('month_subcategory_visibility')
+      .insert({
+        month_id: monthId,
+        subcategory_id: subcategoryId,
+        is_visible: isVisible,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
 }
 
 /**
@@ -686,21 +720,34 @@ export async function addSubcategoryToCurrentAndFutureMonths(subcategoryId: numb
   }
 
   // Create visibility records for all current/future months
-  const visibilityRecords = months.map(m => ({
-    month_id: m.id,
-    subcategory_id: subcategoryId,
-    is_visible: true,
-  }));
+  // Insert records one by one, checking for existence first
+  const results = [];
 
-  const { data, error } = await supabase
-    .from('month_subcategory_visibility')
-    .upsert(visibilityRecords, {
-      onConflict: 'month_id,subcategory_id,user_id'
-    })
-    .select();
+  for (const m of months) {
+    const { data: existing } = await supabase
+      .from('month_subcategory_visibility')
+      .select('id')
+      .eq('month_id', m.id)
+      .eq('subcategory_id', subcategoryId)
+      .maybeSingle();
 
-  if (error) throw error;
-  return data || [];
+    if (!existing) {
+      const { data, error } = await supabase
+        .from('month_subcategory_visibility')
+        .insert({
+          month_id: m.id,
+          subcategory_id: subcategoryId,
+          is_visible: true,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (data) results.push(data);
+    }
+  }
+
+  return results;
 }
 
 // ============================================================================

@@ -1,9 +1,10 @@
 import { useMemo, useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Pencil, Check } from 'lucide-react';
+import { Pencil, Check, Settings } from 'lucide-react';
 import { Transaction, Subcategory } from '../../dashboard-types';
 import { CATEGORIES, SUBCATEGORIES } from '../../dashboard-data';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { ManageSubcategoriesModal } from './manage-subcategories-modal';
 import {
   getMonthlySpendingByCategory,
   getMonthlySpendingBySubcategory,
@@ -11,7 +12,8 @@ import {
   getOrCreateMonth,
   upsertBudget,
   fetchCategories,
-  fetchSubcategories
+  fetchSubcategories,
+  fetchAllSubcategoryVisibility
 } from '../../../lib/database';
 
 interface MonthsTabProps {
@@ -33,6 +35,7 @@ export function MonthsTab({
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingBudgets, setEditingBudgets] = useState<Record<number, string>>({});
   const [savingBudgets, setSavingBudgets] = useState<Set<number>>(new Set());
+  const [isManageModalOpen, setIsManageModalOpen] = useState(false);
 
   // Real data from database
   const [spendingByCategory, setSpendingByCategory] = useState<Record<string, { categoryId: number; categoryName: string; total: number }>>({});
@@ -40,6 +43,7 @@ export function MonthsTab({
   const [monthBudgets, setMonthBudgets] = useState<any[]>([]);
   const [dbCategories, setDbCategories] = useState<any[]>([]);
   const [dbSubcategories, setDbSubcategories] = useState<any[]>([]);
+  const [visibilityMap, setVisibilityMap] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(true);
 
   // Load data when month changes
@@ -48,12 +52,15 @@ export function MonthsTab({
       try {
         setLoading(true);
         const [year, month] = selectedMonth.split('-');
-        const [categoryData, subcategoryData, budgets, categories, subcategories] = await Promise.all([
+        const monthRecord = await getOrCreateMonth(parseInt(year), parseInt(month));
+
+        const [categoryData, subcategoryData, budgets, categories, subcategories, visibility] = await Promise.all([
           getMonthlySpendingByCategory(parseInt(year), parseInt(month)),
           getMonthlySpendingBySubcategory(parseInt(year), parseInt(month)),
           getOrCreateBudgetsForMonth(parseInt(year), parseInt(month)),
           fetchCategories(),
-          fetchSubcategories()
+          fetchSubcategories(),
+          fetchAllSubcategoryVisibility(monthRecord.id)
         ]);
 
         setSpendingByCategory(categoryData);
@@ -61,6 +68,14 @@ export function MonthsTab({
         setMonthBudgets(budgets);
         setDbCategories(categories);
         setDbSubcategories(subcategories);
+
+        // Build visibility map (default to true if no record exists)
+        const visMap: Record<number, boolean> = {};
+        subcategories.forEach(sub => {
+          const visRecord = visibility.find((v: any) => v.subcategory_id === sub.id);
+          visMap[sub.id] = visRecord ? visRecord.is_visible : true;
+        });
+        setVisibilityMap(visMap);
       } catch (error) {
         console.error('Error loading month data:', error);
       } finally {
@@ -169,6 +184,7 @@ export function MonthsTab({
       const catId = categoryNameToId[cat.name] || cat.name;
       const subs = dbSubcategories
         .filter((s) => s.category_id === cat.id)
+        .filter((s) => visibilityMap[s.id] !== false) // Only show visible subcategories
         .sort((a, b) => a.display_order - b.display_order);
 
       const subcategories = subs.map((sub) => {
@@ -191,7 +207,7 @@ export function MonthsTab({
     });
 
     return categoryData;
-  }, [loading, dbCategories, dbSubcategories, spendingByCategory, spendingBySubcategory, monthBudgets]);
+  }, [loading, dbCategories, dbSubcategories, spendingByCategory, spendingBySubcategory, monthBudgets, visibilityMap]);
 
   const chartData = useMemo(() => {
     if (loading || !monthlyData['cat-needs']) return [];
@@ -254,6 +270,13 @@ export function MonthsTab({
           <p className="text-muted-foreground">Detailed breakdown by category</p>
         </div>
         <div className="flex gap-3 items-center">
+          <button
+            onClick={() => setIsManageModalOpen(true)}
+            className="h-9 px-3 py-2 rounded-md text-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap bg-input-background text-foreground hover:bg-accent hover:text-accent-foreground border border-input"
+          >
+            <Settings className="w-4 h-4" />
+            Manage
+          </button>
           <button
             onClick={() => setIsEditMode(!isEditMode)}
             className={`h-9 px-3 py-2 rounded-md text-sm transition-all flex items-center justify-center gap-2 w-[140px] whitespace-nowrap ${
@@ -487,6 +510,34 @@ export function MonthsTab({
           );
         })}
       </div>
+
+      {/* Manage Subcategories Modal */}
+      <ManageSubcategoriesModal
+        isOpen={isManageModalOpen}
+        onClose={() => setIsManageModalOpen(false)}
+        selectedMonth={selectedMonth}
+        onVisibilityChange={() => {
+          // Reload data after visibility changes
+          const loadMonthData = async () => {
+            try {
+              const [year, month] = selectedMonth.split('-');
+              const monthRecord = await getOrCreateMonth(parseInt(year), parseInt(month));
+              const visibility = await fetchAllSubcategoryVisibility(monthRecord.id);
+
+              // Update visibility map
+              const visMap: Record<number, boolean> = {};
+              dbSubcategories.forEach(sub => {
+                const visRecord = visibility.find((v: any) => v.subcategory_id === sub.id);
+                visMap[sub.id] = visRecord ? visRecord.is_visible : true;
+              });
+              setVisibilityMap(visMap);
+            } catch (error) {
+              console.error('Error reloading visibility:', error);
+            }
+          };
+          loadMonthData();
+        }}
+      />
     </div>
   );
 }
