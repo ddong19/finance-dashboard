@@ -27,11 +27,9 @@ export function CategoriesTab({
   const [newSubcategory, setNewSubcategory] = useState({
     name: '',
     categoryId: 'cat-income',
-    budgetAmount: '',
   });
   const [editForm, setEditForm] = useState({
     name: '',
-    budgetAmount: '',
   });
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
 
@@ -45,10 +43,9 @@ export function CategoriesTab({
       name: newSubcategory.name,
       categoryId: newSubcategory.categoryId,
       sortOrder: maxSortOrder + 1,
-      budgetAmount: newSubcategory.budgetAmount ? parseFloat(newSubcategory.budgetAmount) : undefined,
     });
 
-    setNewSubcategory({ name: '', categoryId: 'cat-needs', budgetAmount: '' });
+    setNewSubcategory({ name: '', categoryId: 'cat-needs' });
     setIsAdding(false);
   };
 
@@ -56,7 +53,6 @@ export function CategoriesTab({
     setEditingId(sub.id);
     setEditForm({
       name: sub.name,
-      budgetAmount: sub.budgetAmount?.toString() || '',
     });
   };
 
@@ -65,7 +61,6 @@ export function CategoriesTab({
 
     onUpdateSubcategory(id, {
       name: editForm.name,
-      budgetAmount: editForm.budgetAmount ? parseFloat(editForm.budgetAmount) : undefined,
     });
 
     setEditingId(null);
@@ -127,7 +122,7 @@ export function CategoriesTab({
       {isAdding && (
         <div className="bg-accent/50 border border-border rounded-lg p-5 shadow-sm">
           <h3>Add New Subcategory</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div className="space-y-2">
               <Label>Category</Label>
               <Select
@@ -152,16 +147,6 @@ export function CategoriesTab({
                 placeholder="e.g., Groceries"
                 value={newSubcategory.name}
                 onChange={(e) => setNewSubcategory({ ...newSubcategory, name: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Budget Amount</Label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={newSubcategory.budgetAmount}
-                onChange={(e) => setNewSubcategory({ ...newSubcategory, budgetAmount: e.target.value })}
               />
             </div>
           </div>
@@ -206,25 +191,13 @@ export function CategoriesTab({
                     >
                       {editingId === sub.id ? (
                         <div className="space-y-3">
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Name</Label>
-                              <Input
-                                value={editForm.name}
-                                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                                className="h-8 text-sm"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Budget</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={editForm.budgetAmount}
-                                onChange={(e) => setEditForm({ ...editForm, budgetAmount: e.target.value })}
-                                className="h-8 text-sm"
-                              />
-                            </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Name</Label>
+                            <Input
+                              value={editForm.name}
+                              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                              className="h-8 text-sm"
+                            />
                           </div>
                           <div className="flex gap-2">
                             <Button
@@ -249,12 +222,7 @@ export function CategoriesTab({
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 flex-1">
                             <GripVertical className="w-4 h-4 text-muted-foreground" />
-                            <div>
-                              <div className="font-medium">{sub.name}</div>
-                              <div className="text-sm text-muted-foreground">
-                                Budget: ${sub.budgetAmount?.toFixed(2) || '0.00'}
-                              </div>
-                            </div>
+                            <div className="font-medium">{sub.name}</div>
                           </div>
                           <div className="flex gap-2">
                             <button

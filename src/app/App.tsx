@@ -9,7 +9,7 @@ import { LoginPage } from './components/auth/LoginPage';
 import { Transaction, Subcategory, MonthlyIncome } from './dashboard-types';
 import { SUBCATEGORIES as INITIAL_SUBCATEGORIES, generateMockTransactions, MOCK_INCOME } from './dashboard-data';
 import { supabase } from '../lib/supabase';
-import { fetchTransactionsForMonth, getMonthlySpendingByCategory, getMonthlySpendingBySubcategory, getAvailableMonths, fetchAllTransactions, TransactionWithDetails, fetchBudgetsWithDetails, getOrCreateBudgetsForMonth } from '../lib/database';
+import { fetchTransactionsForMonth, getMonthlySpendingByCategory, getMonthlySpendingBySubcategory, getAvailableMonths, fetchAllTransactions, TransactionWithDetails, getOrCreateBudgetsForMonth, fetchSubcategories, createSubcategory, updateSubcategory, deleteSubcategory, reorderSubcategories, fetchCategories, addSubcategoryToCurrentAndFutureMonths, Subcategory as DbSubcategory } from '../lib/database';
 import type { User } from '@supabase/supabase-js';
 
 type Tab = 'dashboard' | 'months' | 'averages' | 'transactions' | 'categories';
@@ -19,7 +19,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [subcategories, setSubcategories] = useState<Subcategory[]>(INITIAL_SUBCATEGORIES);
+  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
+  const [dbSubcategories, setDbSubcategories] = useState<DbSubcategory[]>([]);
   const [income, setIncome] = useState<MonthlyIncome[]>(MOCK_INCOME);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
@@ -54,19 +55,46 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load available months and all transactions when user logs in
+  // Load available months, transactions, and subcategories when user logs in
   useEffect(() => {
     if (!user) return;
 
     const loadInitialData = async () => {
       try {
-        const [months, transactions] = await Promise.all([
+        const [months, transactions, categories, subs] = await Promise.all([
           getAvailableMonths(),
-          fetchAllTransactions()
+          fetchAllTransactions(),
+          fetchCategories(),
+          fetchSubcategories()
         ]);
 
         setAvailableMonths(months);
         setAllTransactions(transactions);
+        setDbSubcategories(subs);
+
+        // Map database category names to UI category IDs
+        const categoryNameToId: Record<string, string> = {
+          'Income': 'cat-income',
+          'Needs': 'cat-needs',
+          'Wants': 'cat-wants',
+          'Savings': 'cat-savings',
+          'Tithe': 'cat-tithe',
+        };
+
+        // Convert database subcategories to UI format
+        const uiSubcategories: Subcategory[] = subs.map((sub) => {
+          const categoryName = categories.find(c => c.id === sub.category_id)?.name || '';
+          const categoryId = categoryNameToId[categoryName] || '';
+
+          return {
+            id: sub.id.toString(),
+            categoryId: categoryId,
+            name: sub.name,
+            sortOrder: sub.display_order,
+            budgetAmount: 0, // Budgets are now per-month in month_budgets table
+          };
+        });
+        setSubcategories(uiSubcategories);
 
         // If current selected month doesn't exist in available months, set to first available
         if (months.length > 0 && !months.includes(selectedMonth)) {
@@ -105,10 +133,9 @@ export default function App() {
     loadSpendingData();
   }, [user, selectedMonth]);
 
-  // Load data from localStorage
+  // Load data from localStorage (mock data for old features)
   useEffect(() => {
     const storedTransactions = localStorage.getItem('dashboard-transactions');
-    const storedSubcategories = localStorage.getItem('dashboard-subcategories');
     const storedIncome = localStorage.getItem('dashboard-income');
 
     if (storedTransactions) {
@@ -127,14 +154,6 @@ export default function App() {
       setTransactions(generateMockTransactions());
     }
 
-    if (storedSubcategories) {
-      try {
-        setSubcategories(JSON.parse(storedSubcategories));
-      } catch (e) {
-        console.error('Failed to load subcategories', e);
-      }
-    }
-
     if (storedIncome) {
       try {
         setIncome(JSON.parse(storedIncome));
@@ -144,14 +163,10 @@ export default function App() {
     }
   }, []);
 
-  // Save data to localStorage
+  // Save data to localStorage (mock data for old features)
   useEffect(() => {
     localStorage.setItem('dashboard-transactions', JSON.stringify(transactions));
   }, [transactions]);
-
-  useEffect(() => {
-    localStorage.setItem('dashboard-subcategories', JSON.stringify(subcategories));
-  }, [subcategories]);
 
   useEffect(() => {
     localStorage.setItem('dashboard-income', JSON.stringify(income));
@@ -182,34 +197,102 @@ export default function App() {
   }, [transactions, availableMonths]);
 
   // Category handlers
-  const handleAddSubcategory = (subcategory: Omit<Subcategory, 'id'>) => {
-    const newSubcategory: Subcategory = {
-      ...subcategory,
-      id: `sub-${Date.now()}`,
-    };
-    setSubcategories((prev) => [...prev, newSubcategory]);
+  const handleAddSubcategory = async (subcategory: Omit<Subcategory, 'id'>) => {
+    try {
+      // Map UI category ID to category name
+      const categoryIdToName: Record<string, string> = {
+        'cat-income': 'Income',
+        'cat-needs': 'Needs',
+        'cat-wants': 'Wants',
+        'cat-savings': 'Savings',
+        'cat-tithe': 'Tithe',
+      };
+
+      const categoryName = categoryIdToName[subcategory.categoryId];
+
+      // Find the category in database by name
+      const categories = await fetchCategories();
+      const category = categories.find(c => c.name === categoryName);
+
+      if (!category) {
+        console.error('Category not found:', subcategory.categoryId, categoryName);
+        return;
+      }
+
+      // Create in database
+      const newSub = await createSubcategory(
+        category.id,
+        subcategory.name,
+        subcategory.sortOrder
+      );
+
+      // Add to current and future months
+      await addSubcategoryToCurrentAndFutureMonths(newSub.id);
+
+      // Update UI
+      const newSubcategory: Subcategory = {
+        id: newSub.id.toString(),
+        categoryId: subcategory.categoryId,
+        name: newSub.name,
+        sortOrder: newSub.display_order,
+        budgetAmount: 0,
+      };
+      setSubcategories((prev) => [...prev, newSubcategory]);
+      setDbSubcategories((prev) => [...prev, newSub]);
+    } catch (error) {
+      console.error('Error adding subcategory:', error);
+    }
   };
 
-  const handleUpdateSubcategory = (id: string, updates: Partial<Subcategory>) => {
-    setSubcategories((prev) =>
-      prev.map((sub) => (sub.id === id ? { ...sub, ...updates } : sub))
-    );
+  const handleUpdateSubcategory = async (id: string, updates: Partial<Subcategory>) => {
+    try {
+      const dbUpdates: Partial<DbSubcategory> = {};
+      if (updates.name) dbUpdates.name = updates.name;
+      if (updates.sortOrder) dbUpdates.display_order = updates.sortOrder;
+
+      await updateSubcategory(parseInt(id), dbUpdates);
+
+      // Update UI
+      setSubcategories((prev) =>
+        prev.map((sub) => (sub.id === id ? { ...sub, ...updates } : sub))
+      );
+    } catch (error) {
+      console.error('Error updating subcategory:', error);
+    }
   };
 
-  const handleDeleteSubcategory = (id: string) => {
-    setSubcategories((prev) => prev.filter((sub) => sub.id !== id));
+  const handleDeleteSubcategory = async (id: string) => {
+    try {
+      await deleteSubcategory(parseInt(id));
+
+      // Update UI
+      setSubcategories((prev) => prev.filter((sub) => sub.id !== id));
+      setDbSubcategories((prev) => prev.filter((sub) => sub.id !== parseInt(id)));
+    } catch (error) {
+      console.error('Error deleting subcategory:', error);
+    }
   };
 
-  const handleReorderSubcategories = (categoryId: string, orderedIds: string[]) => {
-    setSubcategories((prev) =>
-      prev.map((sub) => {
-        if (sub.categoryId === categoryId) {
-          const newOrder = orderedIds.indexOf(sub.id);
-          return { ...sub, sortOrder: newOrder + 1 };
-        }
-        return sub;
-      })
-    );
+  const handleReorderSubcategories = async (categoryId: string, orderedIds: string[]) => {
+    try {
+      // Convert string IDs to numbers
+      const numericIds = orderedIds.map(id => parseInt(id));
+
+      await reorderSubcategories(numericIds);
+
+      // Update UI
+      setSubcategories((prev) =>
+        prev.map((sub) => {
+          if (sub.categoryId === categoryId) {
+            const newOrder = orderedIds.indexOf(sub.id);
+            return { ...sub, sortOrder: newOrder + 1 };
+          }
+          return sub;
+        })
+      );
+    } catch (error) {
+      console.error('Error reordering subcategories:', error);
+    }
   };
 
   const handleLogout = async () => {
